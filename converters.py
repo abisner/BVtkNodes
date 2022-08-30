@@ -2,6 +2,8 @@ from .core import l  # Import logging
 from .core import *
 from .cache import BVTKCache
 import bmesh
+import numpy as np
+from vtk.numpy_interface import dataset_adapter as dsa
 
 try:
     import pyopenvdb
@@ -116,6 +118,25 @@ def unwrap_and_color_the_mesh(
         create_material(ob, texture.name)
     elif generate_material:
         create_material(ob, None)
+
+
+def generate_custom_attributes(ob, vtk_obj, bm):
+    # Use a numpy dataset adapter for the vtk object
+    usg = dsa.WrapDataObject(vtk_obj)
+    p_data = vtk_obj.GetPointData()
+    for i in range(p_data.GetNumberOfArrays()):
+        arr_name = str(p_data.GetArrayName(i))
+        arr = p_data.GetArray(i)
+        num_comp = arr.GetNumberOfComponents()
+
+        if num_comp == 3:
+            ob.data.attributes.new(name=arr_name, type="FLOAT_VECTOR", domain="POINT")
+            data = usg.PointData[arr_name]
+            ob.data.attributes[arr_name].data.foreach_set("vector", data)
+        if num_comp == 1:
+            ob.data.attributes.new(name=arr_name, type="FLOAT", domain="POINT")
+            data = usg.PointData[arr_name]
+            ob.data.attributes[arr_name].data.foreach_set("value", data)
 
 
 def vtkdata_to_blender(
@@ -628,7 +649,11 @@ def vtkdata_to_blender_mesh(
     val = unwrap_and_color_the_mesh(
         ob, vtk_obj, name, color_mapper, bm, generate_material, vimap
     )
+
     bm.to_mesh(me)
+
+    err = generate_custom_attributes(ob, vtk_obj, bm)
+
     if val:
         start_info = "Coloring failed,"
     else:
@@ -1622,7 +1647,7 @@ def face_unwrap(bm, vtk_obj, array_name, vrange):
             # This should leave scalars unchanged
             for i in range(num_comps):
                 v += tup[i] ** 2
-            v = v ** 0.5
+            v = v**0.5
             v = (v - minr) / (maxr - minr)
             v = min(0.999, max(0.001, v))  # Force value inside range
             loop[uv_layer].uv = (v, 0.5)
@@ -1644,7 +1669,7 @@ def point_unwrap(bm, vtk_obj, array_name, vrange, vimap):
             # This should leave scalars unchanged
             for i in range(num_comps):
                 v += tup[i] ** 2
-            v = v ** 0.5
+            v = v**0.5
             v = (v - minr) / (maxr - minr)
             v = min(0.999, max(0.001, v))  # Force value inside range
             loop[uv_layer].uv = (v, 0.5)
@@ -1729,13 +1754,13 @@ def create_lut(
 
     idealspace = (max - min) / (h)
     exponent = math.floor(math.log10(idealspace))
-    mantissa = idealspace / (10 ** exponent)
+    mantissa = idealspace / (10**exponent)
     if mantissa < 2.5:
-        step = 10 ** exponent
+        step = 10**exponent
     elif mantissa < 7.5:
-        step = 5 * 10 ** exponent
+        step = 5 * 10**exponent
     else:
-        step = 10 * 10 ** exponent
+        step = 10 * 10**exponent
     start = math.ceil(min / step) * step
     delta = max - min
     if step > delta:
@@ -1759,8 +1784,7 @@ def create_lut(
 
 
 class BVTK_Node_VTKToBlenderImage(Node, BVTK_Node):
-    """Convert vtkImageData output into a Blender Image Texture.
-    """
+    """Convert vtkImageData output into a Blender Image Texture."""
 
     bl_idname = "BVTK_Node_VTKToBlenderImageType"  # type name
     bl_label = "VTK To Blender Image"  # label for nice name display
@@ -1779,8 +1803,7 @@ class BVTK_Node_VTKToBlenderImage(Node, BVTK_Node):
         return (["input"], [], [], [])
 
     def draw_buttons_special(self, context, layout):
-        """Custom draw buttons function, to show force update button.
-        """
+        """Custom draw buttons function, to show force update button."""
         layout.prop(self, "m_Name")
         layout.prop(self, "field_name")
         layout.operator("node.bvtk_node_force_update_upstream").node_path = node_path(
